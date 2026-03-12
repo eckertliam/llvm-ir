@@ -285,7 +285,7 @@ fn DILocation_implicit_code_extra_checks() {
     #[cfg(feature = "llvm-14-or-lower")]
     let expected_fmt = "%0 = invoke @_ZN1A3fooEi(%struct.A* %a, i32 0) to label %invoke.cont unwind label %lpad (with debugloc)";
     #[cfg(feature = "llvm-15-or-greater")]
-    let expected_fmt = "%0 = invoke @_ZN1A3fooEi(ptr %a, i32 0) to label %invoke.cont unwind label %lpad (with debugloc)";
+    let expected_fmt = "%0 = invoke void @_ZN1A3fooEi(ptr %a, i32 0) to label %invoke.cont unwind label %lpad (with debugloc)";
     assert_eq!(&format!("{}", invoke), expected_fmt);
 
     // For the rest of the function, our numbered variables are one-off the

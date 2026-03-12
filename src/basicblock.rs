@@ -12,6 +12,21 @@ pub struct BasicBlock {
     pub term: Terminator,
 }
 
+impl std::fmt::Display for BasicBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        // label: the name without the % prefix
+        match &self.name {
+            Name::Name(n) => writeln!(f, "{}:", n)?,
+            Name::Number(n) => writeln!(f, "{}:", n)?,
+        }
+        for instr in &self.instrs {
+            writeln!(f, "  {}", instr)?;
+        }
+        writeln!(f, "  {}", self.term)?;
+        Ok(())
+    }
+}
+
 impl BasicBlock {
     /// A `BasicBlock` instance with no instructions and an `Unreachable` terminator
     pub fn new(name: Name) -> Self {

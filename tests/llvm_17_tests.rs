@@ -44,7 +44,7 @@ fn nuw_nsw_exact() {
         .expect("Expected an add");
     assert_eq!(add.nuw, false);
     assert_eq!(add.nsw, false);
-    assert_eq!(&format!("{add}"), "%1 = add i8 %op1, i8 %op2");
+    assert_eq!(&format!("{add}"), "%1 = add i8 %op1, %op2");
     let add: &instruction::Add = &bb
         .instrs[1]
         .clone()
@@ -52,7 +52,7 @@ fn nuw_nsw_exact() {
         .expect("Expected an add");
     assert_eq!(add.nuw, true);
     assert_eq!(add.nsw, false);
-    assert_eq!(&format!("{add}"), "%2 = add nuw i8 %op1, i8 %op2");
+    assert_eq!(&format!("{add}"), "%2 = add nuw i8 %op1, %op2");
     let add: &instruction::Add = &bb
         .instrs[2]
         .clone()
@@ -60,7 +60,7 @@ fn nuw_nsw_exact() {
         .expect("Expected an add");
     assert_eq!(add.nuw, false);
     assert_eq!(add.nsw, true);
-    assert_eq!(&format!("{add}"), "%3 = add nsw i8 %op1, i8 %op2");
+    assert_eq!(&format!("{add}"), "%3 = add nsw i8 %op1, %op2");
     let add: &instruction::Add = &bb
         .instrs[3]
         .clone()
@@ -68,7 +68,7 @@ fn nuw_nsw_exact() {
         .expect("Expected an add");
     assert_eq!(add.nuw, true);
     assert_eq!(add.nsw, true);
-    assert_eq!(&format!("{add}"), "%4 = add nuw nsw i8 %op1, i8 %op2");
+    assert_eq!(&format!("{add}"), "%4 = add nuw nsw i8 %op1, %op2");
 
     let sub: &instruction::Sub = &bb
         .instrs[4]
@@ -77,7 +77,7 @@ fn nuw_nsw_exact() {
         .expect("Expected a sub");
     assert_eq!(sub.nuw, false);
     assert_eq!(sub.nsw, false);
-    assert_eq!(&format!("{sub}"), "%5 = sub i8 %op1, i8 %op2");
+    assert_eq!(&format!("{sub}"), "%5 = sub i8 %op1, %op2");
     let sub: &instruction::Sub = &bb
         .instrs[5]
         .clone()
@@ -85,7 +85,7 @@ fn nuw_nsw_exact() {
         .expect("Expected a sub");
     assert_eq!(sub.nuw, true);
     assert_eq!(sub.nsw, false);
-    assert_eq!(&format!("{sub}"), "%6 = sub nuw i8 %op1, i8 %op2");
+    assert_eq!(&format!("{sub}"), "%6 = sub nuw i8 %op1, %op2");
     let sub: &instruction::Sub = &bb
         .instrs[6]
         .clone()
@@ -93,7 +93,7 @@ fn nuw_nsw_exact() {
         .expect("Expected a sub");
     assert_eq!(sub.nuw, false);
     assert_eq!(sub.nsw, true);
-    assert_eq!(&format!("{sub}"), "%7 = sub nsw i8 %op1, i8 %op2");
+    assert_eq!(&format!("{sub}"), "%7 = sub nsw i8 %op1, %op2");
     let sub: &instruction::Sub = &bb
         .instrs[7]
         .clone()
@@ -101,7 +101,7 @@ fn nuw_nsw_exact() {
         .expect("Expected a sub");
     assert_eq!(sub.nuw, true);
     assert_eq!(sub.nsw, true);
-    assert_eq!(&format!("{sub}"), "%8 = sub nuw nsw i8 %op1, i8 %op2");
+    assert_eq!(&format!("{sub}"), "%8 = sub nuw nsw i8 %op1, %op2");
 
     let mul: &instruction::Mul = &bb
         .instrs[8]
@@ -110,7 +110,7 @@ fn nuw_nsw_exact() {
         .expect("Expected a mul");
     assert_eq!(mul.nuw, false);
     assert_eq!(mul.nsw, false);
-    assert_eq!(&format!("{mul}"), "%9 = mul i8 %op1, i8 %op2");
+    assert_eq!(&format!("{mul}"), "%9 = mul i8 %op1, %op2");
     let mul: &instruction::Mul = &bb
         .instrs[9]
         .clone()
@@ -118,7 +118,7 @@ fn nuw_nsw_exact() {
         .expect("Expected a mul");
     assert_eq!(mul.nuw, true);
     assert_eq!(mul.nsw, false);
-    assert_eq!(&format!("{mul}"), "%10 = mul nuw i8 %op1, i8 %op2");
+    assert_eq!(&format!("{mul}"), "%10 = mul nuw i8 %op1, %op2");
     let mul: &instruction::Mul = &bb
         .instrs[10]
         .clone()
@@ -126,7 +126,7 @@ fn nuw_nsw_exact() {
         .expect("Expected a mul");
     assert_eq!(mul.nuw, false);
     assert_eq!(mul.nsw, true);
-    assert_eq!(&format!("{mul}"), "%11 = mul nsw i8 %op1, i8 %op2");
+    assert_eq!(&format!("{mul}"), "%11 = mul nsw i8 %op1, %op2");
     let mul: &instruction::Mul = &bb
         .instrs[11]
         .clone()
@@ -134,7 +134,7 @@ fn nuw_nsw_exact() {
         .expect("Expected a mul");
     assert_eq!(mul.nuw, true);
     assert_eq!(mul.nsw, true);
-    assert_eq!(&format!("{mul}"), "%12 = mul nuw nsw i8 %op1, i8 %op2");
+    assert_eq!(&format!("{mul}"), "%12 = mul nuw nsw i8 %op1, %op2");
 
     let udiv: &instruction::UDiv = &bb
         .instrs[12]
@@ -142,14 +142,14 @@ fn nuw_nsw_exact() {
         .try_into()
         .expect("Expected a udiv");
     assert_eq!(udiv.exact, false);
-    assert_eq!(&format!("{udiv}"), "%13 = udiv i8 %op1, i8 %op2");
+    assert_eq!(&format!("{udiv}"), "%13 = udiv i8 %op1, %op2");
     let udiv: &instruction::UDiv = &bb
         .instrs[13]
         .clone()
         .try_into()
         .expect("Expected a udiv");
     assert_eq!(udiv.exact, true);
-    assert_eq!(&format!("{udiv}"), "%14 = udiv exact i8 %op1, i8 %op2");
+    assert_eq!(&format!("{udiv}"), "%14 = udiv exact i8 %op1, %op2");
 
     let sdiv: &instruction::SDiv = &bb
         .instrs[14]
@@ -157,12 +157,12 @@ fn nuw_nsw_exact() {
         .try_into()
         .expect("Expected an sdiv");
     assert_eq!(sdiv.exact, false);
-    assert_eq!(&format!("{sdiv}"), "%15 = sdiv i8 %op1, i8 %op2");
+    assert_eq!(&format!("{sdiv}"), "%15 = sdiv i8 %op1, %op2");
     let sdiv: &instruction::SDiv = &bb
         .instrs[15]
         .clone()
         .try_into()
         .expect("Expected an sdiv");
     assert_eq!(sdiv.exact, true);
-    assert_eq!(&format!("{sdiv}"), "%16 = sdiv exact i8 %op1, i8 %op2");
+    assert_eq!(&format!("{sdiv}"), "%16 = sdiv exact i8 %op1, %op2");
 }
