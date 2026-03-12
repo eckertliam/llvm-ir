@@ -1,6 +1,7 @@
 use crate::debugloc::{DebugLoc, HasDebugLoc};
 use crate::function::{CallingConvention, FunctionAttribute, ParameterAttribute};
 use crate::instruction::{HasResult, InlineAssembly};
+use crate::operand::fmt_operand_with_attrs;
 use crate::types::{Typed, Types};
 use crate::{Constant, ConstantRef, Name, Operand, Type, TypeRef};
 use either::Either;
@@ -286,13 +287,13 @@ impl Display for Switch {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "switch {}, label {} [ ",
+            "switch {}, label {} [\n",
             &self.operand, &self.default_dest,
         )?;
         for (val, label) in &self.dests {
-            write!(f, "{}, label {}; ", val, label)?;
+            write!(f, "    {}, label {}\n", val, label)?;
         }
-        write!(f, "]")?;
+        write!(f, "  ]")?;
         if self.debugloc.is_some() {
             write!(f, " (with debugloc)")?;
         }
@@ -383,23 +384,57 @@ impl Typed for Invoke {
 
 impl Display for Invoke {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // Like with `Call`, we choose not to include all the detailed
-        // information available in the `Invoke` struct in this `Display` impl
-        write!(
-            f,
-            "{} = invoke {}(",
-            &self.result,
-            match &self.function {
-                Either::Left(_) => "<inline assembly>".into(),
-                Either::Right(op) => format!("{}", op),
+        write!(f, "{} = invoke ", &self.result)?;
+        let cc = self.calling_convention.to_string();
+        if !cc.is_empty() {
+            write!(f, "{} ", cc)?;
+        }
+        for attr in &self.return_attributes {
+            let s = attr.to_string();
+            if !s.is_empty() {
+                write!(f, "{} ", s)?;
             }
-        )?;
-        for (i, (arg, _)) in self.arguments.iter().enumerate() {
-            if i == self.arguments.len() - 1 {
-                write!(f, "{}", arg)?;
-            } else {
-                write!(f, "{}, ", arg)?;
+        }
+        #[cfg(feature = "llvm-15-or-greater")]
+        {
+            match self.function_ty.as_ref() {
+                Type::FuncType { result_type, is_var_arg, .. } if *is_var_arg => {
+                    write!(f, "{} ", self.function_ty)?;
+                },
+                Type::FuncType { result_type, .. } => {
+                    write!(f, "{} ", result_type)?;
+                },
+                _ => {
+                    write!(f, "{} ", self.function_ty)?;
+                },
             }
+        }
+        match &self.function {
+            Either::Left(_) => write!(f, "<inline assembly>")?,
+            Either::Right(Operand::ConstantOperand(cref)) => {
+                match cref.as_ref() {
+                    Constant::GlobalReference { name, .. } => {
+                        match name {
+                            Name::Name(n) => write!(f, "@{}", n)?,
+                            Name::Number(n) => write!(f, "@{}", n)?,
+                        }
+                    },
+                    _ => write!(f, "{}", cref)?,
+                }
+            },
+            #[cfg(feature = "llvm-14-or-lower")]
+            Either::Right(op) => write!(f, "{}", op)?,
+            #[cfg(feature = "llvm-15-or-greater")]
+            Either::Right(Operand::LocalOperand { name, .. }) => write!(f, "{}", name)?,
+            #[cfg(feature = "llvm-15-or-greater")]
+            Either::Right(op) => write!(f, "{}", op)?,
+        }
+        write!(f, "(")?;
+        for (i, (arg, attrs)) in self.arguments.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            fmt_operand_with_attrs(arg, attrs, f)?;
         }
         write!(
             f,
@@ -597,24 +632,38 @@ impl Typed for CallBr {
 
 impl Display for CallBr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // Like with `Call` and `Invoke, we choose not to include all the
-        // detailed information available in the `CallBr` struct in this
-        // `Display` impl
-        write!(
-            f,
-            "{} = callbr {}(",
-            &self.result,
-            match &self.function {
-                Either::Left(_) => "<inline assembly>".into(),
-                Either::Right(op) => format!("{}", op),
+        write!(f, "{} = callbr ", &self.result)?;
+        let cc = self.calling_convention.to_string();
+        if !cc.is_empty() {
+            write!(f, "{} ", cc)?;
+        }
+        for attr in &self.return_attributes {
+            let s = attr.to_string();
+            if !s.is_empty() {
+                write!(f, "{} ", s)?;
             }
-        )?;
-        for (i, (arg, _)) in self.arguments.iter().enumerate() {
-            if i == self.arguments.len() - 1 {
-                write!(f, "{}", arg)?;
-            } else {
-                write!(f, "{}, ", arg)?;
+        }
+        match &self.function {
+            Either::Left(_) => write!(f, "<inline assembly>")?,
+            Either::Right(Operand::ConstantOperand(cref)) => {
+                match cref.as_ref() {
+                    Constant::GlobalReference { name, .. } => {
+                        match name {
+                            Name::Name(n) => write!(f, "@{}", n)?,
+                            Name::Number(n) => write!(f, "@{}", n)?,
+                        }
+                    },
+                    _ => write!(f, "{}", cref)?,
+                }
+            },
+            Either::Right(op) => write!(f, "{}", op)?,
+        }
+        write!(f, "(")?;
+        for (i, (arg, attrs)) in self.arguments.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
             }
+            fmt_operand_with_attrs(arg, attrs, f)?;
         }
         write!(f, ") to label {}", &self.return_label)?;
         if self.debugloc.is_some() {

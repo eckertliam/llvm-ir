@@ -1,8 +1,8 @@
-use crate::constant::ConstantRef;
+use crate::constant::{Constant, ConstantRef};
 use crate::debugloc::{DebugLoc, HasDebugLoc};
 use crate::function::{CallingConvention, FunctionAttribute, ParameterAttribute};
 use crate::name::Name;
-use crate::operand::Operand;
+use crate::operand::{fmt_operand_value, fmt_operand_with_attrs, Operand};
 use crate::predicates::*;
 #[cfg(feature = "llvm-14-or-lower")]
 use crate::types::NamedStructDef;
@@ -631,11 +631,8 @@ macro_rules! binop_display {
     ($inst:ty, $dispname:expr) => {
         impl Display for $inst {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(
-                    f,
-                    "{} = {} {}, {}",
-                    &self.dest, $dispname, &self.operand0, &self.operand1,
-                )?;
+                write!(f, "{} = {} {}, ", &self.dest, $dispname, &self.operand0)?;
+                fmt_operand_value(&self.operand1, f)?;
                 if self.debugloc.is_some() {
                     write!(f, " (with debugloc)")?;
                 }
@@ -662,11 +659,8 @@ macro_rules! binop_display_with_flags {
                 // Write any flags we may have
                 $( #[cfg(feature = $required_feature)] if self.$flag_field { write!(f, " {}", $flag_display)?; })*
 
-                write!(
-                    f,
-                    " {}, {}",
-                    &self.operand0, &self.operand1,
-                )?;
+                write!(f, " {}, ", &self.operand0)?;
+                fmt_operand_value(&self.operand1, f)?;
 
                 if self.debugloc.is_some() {
                     write!(f, " (with debugloc)")?;
@@ -1711,13 +1705,13 @@ fn gep_type<'o>(
 
 impl Display for GetElementPtr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // Like for `Load` (see notes there), we differ from the LLVM IR text
-        // syntax here because we don't include the destination type (that's a
-        // little hard to get for us here, and it's derivable from the other
-        // information anyway)
         write!(f, "{} = getelementptr ", &self.dest)?;
         if self.in_bounds {
             write!(f, "inbounds ")?;
+        }
+        #[cfg(feature = "llvm-14-or-greater")]
+        {
+            write!(f, "{}, ", &self.source_element_type)?;
         }
         write!(f, "{}", &self.address)?;
         for idx in &self.indices {
@@ -1951,11 +1945,8 @@ impl Typed for ICmp {
 
 impl Display for ICmp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} = icmp {} {}, {}",
-            &self.dest, &self.predicate, &self.operand0, &self.operand1,
-        )?;
+        write!(f, "{} = icmp {} {}, ", &self.dest, &self.predicate, &self.operand0)?;
+        fmt_operand_value(&self.operand1, f)?;
         if self.debugloc.is_some() {
             write!(f, " (with debugloc)")?;
         }
@@ -1998,11 +1989,8 @@ impl Typed for FCmp {
 
 impl Display for FCmp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} = fcmp {} {}, {}",
-            &self.dest, &self.predicate, &self.operand0, &self.operand1,
-        )?;
+        write!(f, "{} = fcmp {} {}, ", &self.dest, &self.predicate, &self.operand0)?;
+        fmt_operand_value(&self.operand1, f)?;
         if self.debugloc.is_some() {
             write!(f, " (with debugloc)")?;
         }
@@ -2030,13 +2018,13 @@ impl Display for Phi {
             .incoming_values
             .get(0)
             .expect("Phi with no incoming values");
-        write!(
-            f,
-            "{} = phi {} [ {}, {} ]",
-            &self.dest, &self.to_type, first_val, first_label,
-        )?;
+        write!(f, "{} = phi {} [ ", &self.dest, &self.to_type)?;
+        fmt_operand_value(first_val, f)?;
+        write!(f, ", {} ]", first_label)?;
         for (val, label) in &self.incoming_values[1 ..] {
-            write!(f, ", [ {}, {} ]", val, label)?;
+            write!(f, ", [ ")?;
+            fmt_operand_value(val, f)?;
+            write!(f, ", {} ]", label)?;
         }
         if self.debugloc.is_some() {
             write!(f, " (with debugloc)")?;
@@ -2141,30 +2129,75 @@ impl Typed for Call {
 
 impl Display for Call {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // We choose not to include all the detailed information available in
-        // the `Call` struct in this `Display` impl
         if let Some(dest) = &self.dest {
             write!(f, "{} = ", dest)?;
         }
         if self.is_tail_call {
             write!(f, "tail ")?;
         }
-        write!(
-            f,
-            "call {}(",
-            match &self.function {
-                Either::Left(_) => "<inline assembly>".into(),
-                Either::Right(op) => format!("{}", op),
-            }
-        )?;
-        for (i, (arg, _)) in self.arguments.iter().enumerate() {
-            if i == self.arguments.len() - 1 {
-                write!(f, "{}", arg)?;
-            } else {
-                write!(f, "{}, ", arg)?;
+        write!(f, "call ")?;
+        let cc = self.calling_convention.to_string();
+        if !cc.is_empty() {
+            write!(f, "{} ", cc)?;
+        }
+        for attr in &self.return_attributes {
+            let s = attr.to_string();
+            if !s.is_empty() {
+                write!(f, "{} ", s)?;
             }
         }
+        // For LLVM 15+, emit the function type (or return type for simple calls)
+        // For LLVM 14 and lower, the pointer type includes the pointee (function) type
+        #[cfg(feature = "llvm-15-or-greater")]
+        {
+            match self.function_ty.as_ref() {
+                Type::FuncType { result_type, is_var_arg, .. } if *is_var_arg => {
+                    // varargs: must emit the full function type
+                    write!(f, "{} ", self.function_ty)?;
+                },
+                Type::FuncType { result_type, .. } => {
+                    write!(f, "{} ", result_type)?;
+                },
+                _ => {
+                    write!(f, "{} ", self.function_ty)?;
+                },
+            }
+        }
+        // Write the callee
+        match &self.function {
+            Either::Left(_) => write!(f, "<inline assembly>")?,
+            Either::Right(Operand::ConstantOperand(cref)) => {
+                match cref.as_ref() {
+                    Constant::GlobalReference { name, .. } => {
+                        match name {
+                            Name::Name(n) => write!(f, "@{}", n)?,
+                            Name::Number(n) => write!(f, "@{}", n)?,
+                        }
+                    },
+                    _ => write!(f, "{}", cref)?,
+                }
+            },
+            #[cfg(feature = "llvm-14-or-lower")]
+            Either::Right(op) => write!(f, "{}", op)?,
+            #[cfg(feature = "llvm-15-or-greater")]
+            Either::Right(Operand::LocalOperand { name, .. }) => write!(f, "{}", name)?,
+            #[cfg(feature = "llvm-15-or-greater")]
+            Either::Right(op) => write!(f, "{}", op)?,
+        }
+        write!(f, "(")?;
+        for (i, (arg, attrs)) in self.arguments.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            fmt_operand_with_attrs(arg, attrs, f)?;
+        }
         write!(f, ")")?;
+        for attr in &self.function_attributes {
+            let s = attr.to_string();
+            if !s.is_empty() {
+                write!(f, " {}", s)?;
+            }
+        }
         if self.debugloc.is_some() {
             write!(f, " (with debugloc)")?;
         }
@@ -2503,7 +2536,6 @@ pub struct LandingPadClause {}
 // from_llvm //
 // ********* //
 
-use crate::constant::Constant;
 use crate::from_llvm::*;
 use crate::function::FunctionContext;
 use crate::llvm_sys::*;

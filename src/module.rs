@@ -4,8 +4,9 @@ use crate::from_llvm::StringInterner;
 use crate::function::{Function, FunctionAttribute, FunctionDeclaration, GroupID};
 use crate::llvm_sys::*;
 use crate::name::Name;
-use crate::types::{FPType, Type, TypeRef, Typed, Types, TypesBuilder};
+use crate::types::{FPType, NamedStructDef, Type, TypeRef, Typed, Types, TypesBuilder};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt::{self, Display};
 use std::path::Path;
 
 /// See [LLVM 14 docs on Module Structure](https://releases.llvm.org/14.0.0/docs/LangRef.html#module-structure)
@@ -372,6 +373,296 @@ pub enum SelectionKind {
     Largest,
     NoDuplicates,
     SameSize,
+}
+
+// ======= //
+// Display  //
+// ======= //
+
+/// Helper to format a `Name` with `@` prefix (for globals) instead of `%`
+fn fmt_global_name(name: &Name, f: &mut fmt::Formatter) -> fmt::Result {
+    match name {
+        Name::Name(n) => write!(f, "@{}", n),
+        Name::Number(n) => write!(f, "@{}", n),
+    }
+}
+
+impl Display for Linkage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Linkage::Private => write!(f, "private"),
+            Linkage::Internal => write!(f, "internal"),
+            Linkage::External => Ok(()), // external is the default, omit it
+            Linkage::ExternalWeak => write!(f, "extern_weak"),
+            Linkage::AvailableExternally => write!(f, "available_externally"),
+            Linkage::LinkOnceAny => write!(f, "linkonce"),
+            Linkage::LinkOnceODR => write!(f, "linkonce_odr"),
+            Linkage::LinkOnceODRAutoHide => write!(f, "linkonce_odr"),
+            Linkage::WeakAny => write!(f, "weak"),
+            Linkage::WeakODR => write!(f, "weak_odr"),
+            Linkage::Common => write!(f, "common"),
+            Linkage::Appending => write!(f, "appending"),
+            Linkage::DLLImport => write!(f, "dllimport"),
+            Linkage::DLLExport => write!(f, "dllexport"),
+            Linkage::Ghost => write!(f, "extern_weak"),
+            Linkage::LinkerPrivate => write!(f, "linker_private"),
+            Linkage::LinkerPrivateWeak => write!(f, "linker_private_weak"),
+        }
+    }
+}
+
+impl Display for Visibility {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Visibility::Default => Ok(()), // default is implicit
+            Visibility::Hidden => write!(f, "hidden"),
+            Visibility::Protected => write!(f, "protected"),
+        }
+    }
+}
+
+impl Display for DLLStorageClass {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            DLLStorageClass::Default => Ok(()),
+            DLLStorageClass::Import => write!(f, "dllimport"),
+            DLLStorageClass::Export => write!(f, "dllexport"),
+        }
+    }
+}
+
+impl Display for ThreadLocalMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ThreadLocalMode::NotThreadLocal => Ok(()),
+            ThreadLocalMode::GeneralDynamic => write!(f, "thread_local"),
+            ThreadLocalMode::LocalDynamic => write!(f, "thread_local(localdynamic)"),
+            ThreadLocalMode::InitialExec => write!(f, "thread_local(initialexec)"),
+            ThreadLocalMode::LocalExec => write!(f, "thread_local(localexec)"),
+        }
+    }
+}
+
+impl Display for UnnamedAddr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            UnnamedAddr::Local => write!(f, "local_unnamed_addr"),
+            UnnamedAddr::Global => write!(f, "unnamed_addr"),
+        }
+    }
+}
+
+impl Display for SelectionKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SelectionKind::Any => write!(f, "any"),
+            SelectionKind::ExactMatch => write!(f, "exactmatch"),
+            SelectionKind::Largest => write!(f, "largest"),
+            SelectionKind::NoDuplicates => write!(f, "noduplicates"),
+            SelectionKind::SameSize => write!(f, "samesize"),
+        }
+    }
+}
+
+impl Display for Comdat {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "comdat({})", self.name)
+    }
+}
+
+impl Display for GlobalVariable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt_global_name(&self.name, f)?;
+        write!(f, " =")?;
+        // linkage
+        let linkage = self.linkage.to_string();
+        if !linkage.is_empty() {
+            write!(f, " {}", linkage)?;
+        }
+        // visibility
+        let vis = self.visibility.to_string();
+        if !vis.is_empty() {
+            write!(f, " {}", vis)?;
+        }
+        // dll storage class
+        let dll = self.dll_storage_class.to_string();
+        if !dll.is_empty() {
+            write!(f, " {}", dll)?;
+        }
+        // thread local
+        let tlm = self.thread_local_mode.to_string();
+        if !tlm.is_empty() {
+            write!(f, " {}", tlm)?;
+        }
+        // unnamed_addr
+        if let Some(ua) = &self.unnamed_addr {
+            write!(f, " {}", ua)?;
+        }
+        // addrspace
+        if self.addr_space != 0 {
+            write!(f, " addrspace({})", self.addr_space)?;
+        }
+        // constant or global
+        if self.is_constant {
+            write!(f, " constant")?;
+        } else {
+            write!(f, " global")?;
+        }
+        // type and initializer
+        write!(f, " {}", self.value_type)?;
+        if let Some(init) = &self.initializer {
+            write!(f, " ")?;
+            crate::operand::fmt_constant_value(init, f)?;
+        }
+        // section
+        if let Some(section) = &self.section {
+            write!(f, ", section \"{}\"", section)?;
+        }
+        // comdat
+        if let Some(comdat) = &self.comdat {
+            write!(f, ", {}", comdat)?;
+        }
+        // alignment
+        if self.alignment != 0 {
+            write!(f, ", align {}", self.alignment)?;
+        }
+        Ok(())
+    }
+}
+
+impl Display for GlobalAlias {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt_global_name(&self.name, f)?;
+        write!(f, " =")?;
+        // linkage
+        let linkage = self.linkage.to_string();
+        if !linkage.is_empty() {
+            write!(f, " {}", linkage)?;
+        }
+        // visibility
+        let vis = self.visibility.to_string();
+        if !vis.is_empty() {
+            write!(f, " {}", vis)?;
+        }
+        // dll storage class
+        let dll = self.dll_storage_class.to_string();
+        if !dll.is_empty() {
+            write!(f, " {}", dll)?;
+        }
+        // thread local
+        let tlm = self.thread_local_mode.to_string();
+        if !tlm.is_empty() {
+            write!(f, " {}", tlm)?;
+        }
+        // unnamed_addr
+        if let Some(ua) = &self.unnamed_addr {
+            write!(f, " {}", ua)?;
+        }
+        write!(f, " alias {}, {}", self.ty, self.aliasee)?;
+        Ok(())
+    }
+}
+
+impl Display for GlobalIFunc {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt_global_name(&self.name, f)?;
+        write!(f, " =")?;
+        // linkage
+        let linkage = self.linkage.to_string();
+        if !linkage.is_empty() {
+            write!(f, " {}", linkage)?;
+        }
+        // visibility
+        let vis = self.visibility.to_string();
+        if !vis.is_empty() {
+            write!(f, " {}", vis)?;
+        }
+        write!(f, " ifunc {}, {}", self.ty, self.resolver_fn)?;
+        Ok(())
+    }
+}
+
+impl Display for Module {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // source_filename
+        if !self.source_file_name.is_empty() {
+            writeln!(f, "source_filename = \"{}\"", self.source_file_name)?;
+        }
+        // target datalayout
+        if !self.data_layout.layout_str.is_empty() {
+            writeln!(f, "target datalayout = \"{}\"", self.data_layout.layout_str)?;
+        }
+        // target triple
+        if let Some(triple) = &self.target_triple {
+            writeln!(f, "target triple = \"{}\"", triple)?;
+        }
+        writeln!(f)?;
+
+        // module-level inline assembly
+        if !self.inline_assembly.is_empty() {
+            for line in self.inline_assembly.lines() {
+                writeln!(f, "module asm \"{}\"", line)?;
+            }
+            writeln!(f)?;
+        }
+
+        // named struct type definitions
+        let mut struct_names: Vec<&String> = self.types.all_struct_names().collect();
+        struct_names.sort();
+        for name in &struct_names {
+            match self.types.named_struct_def(name) {
+                Some(NamedStructDef::Opaque) => {
+                    writeln!(f, "%{} = type opaque", name)?;
+                },
+                Some(NamedStructDef::Defined(ty)) => {
+                    writeln!(f, "%{} = type {}", name, ty)?;
+                },
+                None => {},
+            }
+        }
+        if !struct_names.is_empty() {
+            writeln!(f)?;
+        }
+
+        // global variables
+        for gv in &self.global_vars {
+            writeln!(f, "{}", gv)?;
+        }
+        if !self.global_vars.is_empty() {
+            writeln!(f)?;
+        }
+
+        // global aliases
+        for ga in &self.global_aliases {
+            writeln!(f, "{}", ga)?;
+        }
+        if !self.global_aliases.is_empty() {
+            writeln!(f)?;
+        }
+
+        // global ifuncs
+        for gi in &self.global_ifuncs {
+            writeln!(f, "{}", gi)?;
+        }
+        if !self.global_ifuncs.is_empty() {
+            writeln!(f)?;
+        }
+
+        // function declarations
+        for decl in &self.func_declarations {
+            writeln!(f, "{}", decl)?;
+        }
+        if !self.func_declarations.is_empty() {
+            writeln!(f)?;
+        }
+
+        // function definitions
+        for func in &self.functions {
+            writeln!(f, "{}", func)?;
+        }
+
+        Ok(())
+    }
 }
 
 /// See [LLVM 14 docs on Data Layout](https://releases.llvm.org/14.0.0/docs/LangRef.html#data-layout)
